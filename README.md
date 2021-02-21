@@ -1,4 +1,4 @@
-Implementation of the compact Hist-Tree, as described in "Hist-Tree: Those Who Ignore It Are Doomed to Learn" - Andrew Crotty, Brown University
+"Hist-Tree: Those Who Ignore It Are Doomed to Learn" - Andrew Crotty, Brown University
 ====
 
 ## Build
