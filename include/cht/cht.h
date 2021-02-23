@@ -9,20 +9,22 @@
 
 namespace cht {
 
+template <class KeyType>
 class CHT {
  public:
   CHT() = default;
 
-	// The constructor
-  CHT(size_t numBins, size_t maxError) : num_bins_(numBins), max_error_(maxError) {}
+	// The constructor. The cache-oblivious structure makes sense when the tree becomes deep (`numBins` or `maxError` become small)
+  CHT(size_t numBins, size_t maxError, bool useCache = false) : num_bins_(numBins), max_error_(maxError), use_cache_(useCache) {}
 
   // Alternative for constructor
-  void Init(size_t numBins, size_t maxError) {
+  void Init(size_t numBins, size_t maxError, bool useCache = false) {
     num_bins_ = numBins;
     max_error_ = maxError;
+		use_cache_ = useCache;
   }
 
-  void AddKey(uint64_t key) {
+  void AddKey(KeyType key) {
 		keys.push_back(key);
 	}
   
@@ -49,9 +51,12 @@ class CHT {
 
 		// Build the actual Compact Hist-Tree
 		BuildCHT();
-		
+
 		// Flatten it
-		Flatten();
+		if (!use_cache_)
+			Flatten();
+		else
+			CacheObliviousFlatten();
 		
 		// And clear the storage
 		keys.clear();
@@ -59,7 +64,7 @@ class CHT {
 	}
 	
   // Returns a search bound [`begin`, `end`) around the estimated position.
-  SearchBound GetSearchBound(const uint64_t key) const {
+  SearchBound GetSearchBound(const KeyType key) const {
     const size_t begin = Lookup(key);
 		// `end` is exclusive.
     const size_t end = (begin + max_error_ + 1 > num_keys_) ? num_keys_ : (begin + max_error_ + 1);
@@ -74,8 +79,12 @@ class CHT {
  private:
 	static constexpr unsigned LEAF = (1u << 31);
 	static constexpr unsigned MASK = LEAF - 1;
+	
+	// Range covered by a node, i.e. [l, r[
 	using range = std::pair<unsigned, unsigned>;
-	using info = std::pair<unsigned, uint64_t>;
+	
+	// (Node level, smallest key in node)
+	using info = std::pair<unsigned, KeyType>;
 
 	static unsigned computeLog(uint32_t n) {
 		assert(n);
@@ -183,8 +192,102 @@ class CHT {
 		}
 	}
 	 
+	// Flatten the layout of the tree based with cache-obliviousness
+	void CacheObliviousFlatten() {
+		// Build the precendence graph between nodes
+		assert(!cht.empty());
+		auto maxLevel = cht.back().first.first;
+		std::vector<std::vector<unsigned>> graph(cht.size());
+		for (unsigned index = 0, limit = cht.size(); index != limit; ++index) {
+			graph[index].reserve(num_bins_);
+			for (unsigned bin = 0; bin != num_bins_; ++bin) {
+				// No leaf?
+				if ((cht[index].second[bin].first & LEAF) == 0) {
+					graph[index].push_back(cht[index].second[bin].second);
+				}
+			}
+		}
+		
+		// And now set the count of nodes in subtree (bottom-up)
+		auto access = [&](unsigned vertex) -> unsigned { return vertex * (maxLevel + 1); };
+		std::vector<std::pair<unsigned, unsigned>> helper(cht.size() * (maxLevel + 1), std::make_pair(std::numeric_limits<unsigned>::max(), 0));
+		for (unsigned index = 0, limit = cht.size(); index != limit; ++index) {
+			auto vertex = limit - index - 1;
+			
+			// Add the vertex itself
+			helper[access(vertex) + cht[vertex].first.first] = std::make_pair(vertex, 1);
+			
+			// And all subtrees, if any
+			for (auto v : graph[vertex]) {
+				for (unsigned lvl = 0; lvl <= maxLevel; ++lvl) {
+					helper[access(vertex) + lvl].first = std::min(helper[access(vertex) + lvl].first, helper[access(v) + lvl].first);
+					helper[access(vertex) + lvl].second += helper[access(v) + lvl].second;
+				}
+			}
+		}
+		
+		// Build the `order`, the cache-oblivious permutation
+		unsigned tempSize = 0;
+		std::vector<unsigned> order(cht.size());
+		
+		// Fill levels in [`lh`, `uh`[
+		std::function<void(unsigned, unsigned, unsigned)> fill = [&](unsigned rowIndex, unsigned lh, unsigned uh) {
+			// Stop?
+			if (uh - lh == 1) {
+				order[rowIndex] = tempSize++;
+				return;
+			}
+			
+			// Leaf?
+			if (graph[rowIndex].empty()) {
+				order[rowIndex] = tempSize++;
+				return;
+			}
+			
+			// Find the split level
+			assert(helper[access(rowIndex) + lh].second);
+			auto splitLevel = uh;
+			while ((splitLevel >= lh + 1) && (!helper[access(rowIndex) + splitLevel - 1].second))
+				--splitLevel;
+			if (splitLevel == lh) {
+				order[rowIndex] = tempSize++;
+				return;
+			}
+			splitLevel = (lh + splitLevel) / 2; 
+
+			// Recursion
+			fill(rowIndex, lh, splitLevel);
+			auto begin = helper[access(rowIndex) + splitLevel].first, end = begin + helper[access(rowIndex) + splitLevel].second;
+			for (unsigned ptr = begin; ptr != end; ++ptr) {
+				fill(ptr, splitLevel, uh); 
+			}
+		};
+		
+		// Start filling `order`, which is a permutation of the nodes, s.t. the tree becomes cache-oblivious
+		fill(0, 0, maxLevel + 1);
+		
+		// Flatten with `order`
+		table.resize(cht.size() * num_bins_);
+		for (unsigned index = 0, limit = cht.size(); index != limit; ++index) {
+			for (unsigned bin = 0; bin != num_bins_; ++bin) {
+				// Leaf node?
+				if (cht[index].second[bin].first & LEAF) {
+					// Set the partial sum
+					table[(order[index] << log_num_bins_) + bin] = cht[index].second[bin].first;
+				} else {
+					// Set the pointer
+					table[(order[index] << log_num_bins_) + bin] = (order[cht[index].second[bin].second] << log_num_bins_); 
+				}
+			}
+		}
+		
+		// And clean
+		helper.clear();
+		order.clear();
+	}
+	
 	// Lookup `key` in tree
-  size_t Lookup(uint64_t key) const {
+  size_t Lookup(KeyType key) const {
 		// Edge cases
 		if (key <= min_key_) return 0;
 		if (key >= max_key_) return num_keys_;
@@ -208,13 +311,14 @@ class CHT {
   }
 	 
 	size_t num_keys_;
-  uint64_t min_key_;
-  uint64_t max_key_;
+  KeyType min_key_;
+  KeyType max_key_;
 	size_t max_error_ = 0;
 	size_t num_bins_ = 0;
+	bool use_cache_ = false;
   size_t log_num_bins_;
   size_t shift_;
-	std::vector<uint64_t> keys;
+	std::vector<KeyType> keys;
 	std::vector<unsigned> table;
 	std::vector<std::pair<info, std::vector<range>>> cht;	
 };

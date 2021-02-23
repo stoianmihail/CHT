@@ -25,7 +25,7 @@ sort(keys.begin(), keys.end());
 // Build CHT
 const unsigned numBins = 64; // each node will have 64 separate bins
 const unsigned maxError = 32; // the error of the index
-cht::CHT cht(64, maxError);
+cht::CHT cht(numBins, maxError);
 for (const auto& key : keys) cht.AddKey(key);
 cht.Build();
 

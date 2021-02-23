@@ -10,5 +10,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 file(GLOB INCLUDE_H "include/cht/*.h")
 set(EXAMPLE_FILES example.cc)
+set(BENCH_FILES bench.cc)
 
 add_executable(example ${INCLUDE_H} ${EXAMPLE_FILES})
+add_executable(bench ${INCLUDE_H} ${BENCH_FILES})
