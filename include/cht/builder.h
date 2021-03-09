@@ -69,14 +69,15 @@ class Builder {
   }
 
  private:
-	static constexpr unsigned LEAF = (1u << 31);
-	static constexpr unsigned MASK = LEAF - 1;
+	static constexpr unsigned Infinity = std::numeric_limits<unsigned>::max();
+	static constexpr unsigned Leaf = (1u << 31);
+	static constexpr unsigned Mask = Leaf - 1;
 	
 	// Range covered by a node, i.e. [l, r[
-	using range = std::pair<unsigned, unsigned>;
+	using Range = std::pair<unsigned, unsigned>;
 	
 	// (Node level, smallest key in node)
-	using info = std::pair<unsigned, KeyType>;
+	using Info = std::pair<unsigned, KeyType>;
 
 	static unsigned computeLog(uint32_t n, bool round = false) {
 		assert(n);
@@ -89,12 +90,49 @@ class Builder {
 	}
 	 
   void IncrementTable(KeyType key) {
-    // TODO:
+    const auto Insert = [&]() -> void {
+			// Traverse the tree from root
+			for (unsigned level = 0, nodeIndex = 0; (shift_ >= level * log_num_bins_); ++level) {
+				const auto [level, lower] = tree_[nodeIndex].first;
+				
+				// Compute the width and the bin for this node
+				unsigned width = shift_ - level * log_num_bins_;
+				auto bin = (key - min_key_ - tree_[nodeIndex].first.second) >> width;
+				
+				// Did we already visit this node?
+				if (tree_[nodeIndex].second[bin].first != Infinity) {
+					nodeIndex = tree_[nodeIndex].second[bin].first;
+					continue;
+				}
+				
+				// Can we continue with the next level?
+				if (shift_ >= (level + 1) * log_num_bins_) {
+					// Then set the partial sums, which will remain unchanged for this particular node
+					tree_[nodeIndex].second[bin].first = curr_num_keys_;
+					
+					// Create the new node
+					std::vector<Range> newNode;
+					newNode.assign(num_bins_, {Infinity, Infinity});					
+					
+					// Compute the lowest key and attach the new node to the bin
+					const auto newLower = lower + bin * (1ull << (shift_ - level * log_num_bins_));
+					tree_.push_back({{level + 1, newLower}, newNode});
+										
+					// Point to the new node
+					tree_[nodeIndex].second[bin].second = tree_.size() - 1;
+					nodeIndex = tree_.size() - 1;
+				}
+			}
+		};
+		
+		if (!curr_num_keys_)
+			tree_.push_back({{0, 0}, std::vector<Range>(num_bins_, {Infinity, Infinity})});
+		Insert();
   }
-  
+
 	void BuildOffline() {
 		// Init the node, which covers the range `curr` := [a, b[
-		auto initNode = [&](unsigned nodeIndex, range curr) -> void {
+		auto initNode = [&](unsigned nodeIndex, Range curr) -> void {
 			// Compute `width` of the current node (2^`width` represents the range covered by a single bin) 
 			std::optional<unsigned> currBin = std::nullopt;
 			unsigned width = shift_ - tree_[nodeIndex].first.first * log_num_bins_;
@@ -108,11 +146,11 @@ class Builder {
 				if ((!currBin.has_value()) || (bin != currBin.value())) {
 					// Iterate the bins which has not been touched and set for them an empty range
 					for (unsigned iter = currBin.has_value() ? (currBin.value() + 1) : 0; iter != bin; ++iter) {
-						tree_[nodeIndex].second[iter] = std::make_pair(index, index);
+						tree_[nodeIndex].second[iter] = {index, index};
 					}
 					
 					// Init the current bin
-					tree_[nodeIndex].second[bin] = std::make_pair(index, index);
+					tree_[nodeIndex].second[bin] = {index, index};
 					currBin = bin;
 				}
 				
@@ -123,8 +161,8 @@ class Builder {
 		};
 		
 		// Init the first node
-		tree_.push_back(std::make_pair(std::make_pair(0, 0), std::vector<range>(num_bins_, std::make_pair(curr_num_keys_, curr_num_keys_))));
-		initNode(0, std::make_pair(0, curr_num_keys_));
+		tree_.push_back({{0, 0}, std::vector<Range>(num_bins_, {curr_num_keys_, curr_num_keys_})});
+		initNode(0, {0, curr_num_keys_});
 
 		// Run the BFS
 		std::queue<unsigned> nodes;
@@ -142,30 +180,30 @@ class Builder {
 				if (tree_[node].second[index].second - tree_[node].second[index].first >= max_error_) {
 					// Corner-case: is #keys > range? Then create a leaf (this can only happen for datasets with duplicates)
 					auto size = tree_[node].second[index].second - tree_[node].second[index].first;
-					if (size >= (1ull << (shift_ - level * computeLog(num_bins_)))) {
-						tree_[node].second[index].first |= LEAF;
+					if (size >= (1ull << (shift_ - level * log_num_bins_))) {
+						tree_[node].second[index].first |= Leaf;
 						continue;
 					}
 
 					// Alloc the next node
-					std::vector<range> newNode;
-					newNode.assign(num_bins_, std::make_pair(tree_[node].second[index].second, tree_[node].second[index].second));
+					std::vector<Range> newNode;
+					newNode.assign(num_bins_, {tree_[node].second[index].second, tree_[node].second[index].second});
 					
 					// And add it to the tree
-					auto newLower = lower + index * (1ull << (shift_ - level * computeLog(num_bins_)));
-					tree_.push_back(std::make_pair(std::make_pair(level + 1, newLower), newNode));
+					auto newLower = lower + index * (1ull << (shift_ - level * log_num_bins_));
+					tree_.push_back({{level + 1, newLower}, newNode});
 					
 					// Init it
 					initNode(tree_.size() - 1, tree_[node].second[index]);
 					
 					// Reset this node (no leaf, pointer to child)
-					tree_[node].second[index] = std::make_pair(size, tree_.size() - 1);
+					tree_[node].second[index] = {size, tree_.size() - 1};
 					
 					// And push it into the queue
 					nodes.push(tree_.size() - 1);
 				} else {
 					// Leaf
-					tree_[node].second[index].first |= LEAF;
+					tree_[node].second[index].first |= Leaf;
 				}
 			}
 		}
@@ -177,7 +215,7 @@ class Builder {
 		for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
 			for (unsigned bin = 0; bin != num_bins_; ++bin) {
 				// Leaf node?
-				if (tree_[index].second[bin].first & LEAF) {
+				if (tree_[index].second[bin].first & Leaf) {
 					// Set the partial sum
 					table_[(index << log_num_bins_) + bin] = tree_[index].second[bin].first;
 				} else {
@@ -198,7 +236,7 @@ class Builder {
 			graph[index].reserve(num_bins_);
 			for (unsigned bin = 0; bin != num_bins_; ++bin) {
 				// No leaf?
-				if ((tree_[index].second[bin].first & LEAF) == 0) {
+				if ((tree_[index].second[bin].first & Leaf) == 0) {
 					graph[index].push_back(tree_[index].second[bin].second);
 				}
 			}
@@ -206,12 +244,12 @@ class Builder {
 		
 		// And now set the count of nodes in subtree (bottom-up)
 		auto access = [&](unsigned vertex) -> unsigned { return vertex * (maxLevel + 1); };
-		std::vector<std::pair<unsigned, unsigned>> helper(tree_.size() * (maxLevel + 1), std::make_pair(std::numeric_limits<unsigned>::max(), 0));
+		std::vector<std::pair<unsigned, unsigned>> helper(tree_.size() * (maxLevel + 1), {Infinity, 0});
 		for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
 			auto vertex = limit - index - 1;
 			
 			// Add the vertex itself
-			helper[access(vertex) + tree_[vertex].first.first] = std::make_pair(vertex, 1);
+			helper[access(vertex) + tree_[vertex].first.first] = {vertex, 1};
 			
 			// And all subtrees, if any
 			for (auto v : graph[vertex]) {
@@ -267,7 +305,7 @@ class Builder {
 		for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
 			for (unsigned bin = 0; bin != num_bins_; ++bin) {
 				// Leaf node?
-				if (tree_[index].second[bin].first & LEAF) {
+				if (tree_[index].second[bin].first & Leaf) {
 					// Set the partial sum
 					table_[(order[index] << log_num_bins_) + bin] = tree_[index].second[bin].first;
 				} else {
@@ -296,7 +334,7 @@ class Builder {
   
 	std::vector<KeyType> keys_;
 	std::vector<unsigned> table_;
-	std::vector<std::pair<info, std::vector<range>>> tree_;	
+	std::vector<std::pair<Info, std::vector<Range>>> tree_;
 };
 
 }  // namespace cht

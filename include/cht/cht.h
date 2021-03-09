@@ -40,8 +40,8 @@ class CompactHistTree {
   }
 
  private:
-	static constexpr unsigned LEAF = (1u << 31);
-	static constexpr unsigned MASK = LEAF - 1;
+	static constexpr unsigned Leaf = (1u << 31);
+	static constexpr unsigned Mask = Leaf - 1;
 	
 	// Lookup `key` in tree
   size_t Lookup(KeyType key) const {
@@ -58,8 +58,8 @@ class CompactHistTree {
 			next = table_[next + bin];
 
 			// Is it a leaf?
-			if (next & LEAF)
-				return next & MASK;
+			if (next & Leaf)
+				return next & Mask;
 			
 			// Prepare for the next level
 			key -= bin << width;
