@@ -29,7 +29,7 @@ uint64_t min = keys.front();
 uint64_t max = keys.back();
 const unsigned numBins = 64; // each node will have 64 separate bins
 const unsigned maxError = 32; // the error of the index
-cht::Builder<uint64_t> chtb(min, max, numBins, maxError, useCache);
+cht::Builder<uint64_t> chtb(min, max, numBins, maxError);
 for (const auto& key : keys) chtb.AddKey(key);
 cht::CompactHistTree<uint64_t> cht = chtb.Finalize();
 
