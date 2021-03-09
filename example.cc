@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <vector>
 
+#include "include/cht/builder.h"
 #include "include/cht/cht.h"
 
 template <class KeyType>
@@ -12,14 +13,16 @@ void CompactHistTreeExample(bool useCache = false) {
   keys.push_back(424242);
   std::sort(keys.begin(), keys.end());
 
-  // Build CHT
+  // Build `CompactHistTree`
+	KeyType min = keys.front();
+  KeyType max = keys.back();
   const unsigned numBins = 64; // each node will have 64 separate bins
   const unsigned maxError = 32; // the error of the index
-  cht::CHT<KeyType> cht(numBins, maxError);
-  for (const auto& key : keys) cht.AddKey(key);
-	cht.Build();
+  cht::Builder<KeyType> chtb(min, max, numBins, maxError, useCache);
+  for (const auto& key : keys) chtb.AddKey(key);
+	cht::CompactHistTree<KeyType> cht = chtb.Finalize();
 	
-  // Search using CHT
+  // Search using `CompactHistTree`
   cht::SearchBound bound = cht.GetSearchBound(424242);
   std::cout << "The search key is in the range: ["
        << bound.begin << ", " << bound.end << ")" << std::endl;

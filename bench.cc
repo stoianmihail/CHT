@@ -2,6 +2,7 @@
 #include <chrono>
 #include <random>
 
+#include "include/cht/builder.h"
 #include "include/cht/cht.h"
 
 using namespace std::chrono;
@@ -42,11 +43,13 @@ void Benchmark() {
 			auto numBins = 1u << i, maxError = 1u << j;
 			
 			// Build both CHTs
-			cht::CHT<KeyType> cht(numBins, maxError, false);
-			cht::CHT<KeyType> ccht(numBins, maxError, true);
-			for (const auto& key : keys) cht.AddKey(key), ccht.AddKey(key); 
-			cht.Build();
-			ccht.Build();
+			KeyType min = keys.front();
+			KeyType max = keys.back();
+			cht::Builder<KeyType> chtb(min, max, numBins, maxError, false);
+			cht::Builder<KeyType> cchtb(min, max, numBins, maxError, true);
+			for (const auto& key : keys) chtb.AddKey(key), cchtb.AddKey(key); 
+			auto cht = chtb.Finalize();
+			auto ccht = cchtb.Finalize();
 			
 			// Compare pure lookups
 			auto measureTime = [&](std::string type) -> void {
