@@ -15,7 +15,7 @@ make
 
 ## Examples
 
-Using ``cht::Build`` to index the sorted data:
+Using ``cht::Builder`` to index the sorted data:
 
 ```c++
 // Create random keys.
@@ -24,14 +24,16 @@ generate(keys.begin(), keys.end(), rand);
 keys.push_back(424242);
 std::sort(keys.begin(), keys.end());
 
-// Build CHT
+// Build `CompactHistTree`
+uint64_t min = keys.front();
+uint64_t max = keys.back();
 const unsigned numBins = 64; // each node will have 64 separate bins
 const unsigned maxError = 32; // the error of the index
-cht::CHT<uint64_t> cht(numBins, maxError);
-for (const auto& key : keys) cht.AddKey(key);
-cht.Build();
+cht::Builder<uint64_t> chtb(min, max, numBins, maxError, useCache);
+for (const auto& key : keys) chtb.AddKey(key);
+cht::CompactHistTree<uint64_t> cht = chtb.Finalize();
 
-// Search using CHT
+// Search using `CompactHistTree`
 cht::SearchBound bound = cht.GetSearchBound(424242);
 std::cout << "The search key is in the range: ["
 			<< bound.begin << ", " << bound.end << ")" << std::endl;
