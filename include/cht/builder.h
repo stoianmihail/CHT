@@ -21,7 +21,7 @@ class Builder {
         log_num_bins_(computeLog(num_bins_)),
         max_error_(max_error),
         use_cache_(use_cache),
-        single_pass_(single_pass),
+        single_pass_(use_cache ? false : single_pass),
         curr_num_keys_(0),
         prev_key_(min_key) {
 					assert((num_bins_ & (num_bins_ - 1)) == 0);
@@ -31,6 +31,13 @@ class Builder {
 					// And also the initial shift for the first node of the tree
 					assert(lg >= log_num_bins_);
 					shift_ = lg - log_num_bins_;
+					
+					if ((use_cache) && (single_pass)) {
+						std::cerr << "Cache-oblivious and single-pass not supported yet! In this case it will ignore the single-pass option" << std::endl;
+					}
+					
+					std::cerr << "bins=" << num_bins << " error=" << max_error << std::endl;
+					std::cerr << "!!! lg=" << lg << " shift=" << shift_ << std::endl;
 				}
 
   // Adds a key. Assumes that keys are stored in a dense array.
@@ -53,14 +60,16 @@ class Builder {
     // Last key needs to be equal to `max_key_`.
     assert((!curr_num_keys_) || (prev_key_ == max_key_));
 
-		if (!single_pass_)
+		if (!single_pass_) {
 			BuildOffline();
-		
-		// Flatten it
-		if (!use_cache_)
-			Flatten();
-		else
-			CacheObliviousFlatten();
+			
+			if (!use_cache_)
+				Flatten();
+			else
+				CacheObliviousFlatten();
+		} else {
+			PruneAndFlatten();
+		}
 		
     return CompactHistTree<KeyType>(
         min_key_, max_key_, curr_num_keys_,
@@ -79,6 +88,9 @@ class Builder {
 	// (Node level, smallest key in node)
 	using Info = std::pair<unsigned, KeyType>;
 
+	// A queue element
+	using Elem = std::pair<unsigned, Range>;
+	
 	static unsigned computeLog(uint32_t n, bool round = false) {
 		assert(n);
 		return 31 - __builtin_clz(n) + (round ? ((n & (n - 1)) != 0) : 0);
@@ -93,31 +105,43 @@ class Builder {
     const auto Insert = [&]() -> void {
 			// Traverse the tree from root
 			for (unsigned level = 0, nodeIndex = 0; (shift_ >= level * log_num_bins_); ++level) {
-				const auto [level, lower] = tree_[nodeIndex].first;
+				const auto [_, lower] = tree_[nodeIndex].first;
+				//std::cerr << "lower=" << lower << std::endl;
 				
 				// Compute the width and the bin for this node
 				unsigned width = shift_ - level * log_num_bins_;
-				auto bin = (key - min_key_ - tree_[nodeIndex].first.second) >> width;
+				auto bin = (key - min_key_ - lower) >> width;
+				
+				
+				//std::cerr << "nodeIndex=" << nodeIndex << " level=" << level << " width=" << width << " bin=" << bin << std::endl;
+				
 				
 				// Did we already visit this node?
 				if (tree_[nodeIndex].second[bin].first != Infinity) {
-					nodeIndex = tree_[nodeIndex].second[bin].first;
+					//std::cerr << "bin=" << bin << " already visited!" << std::endl;
+					nodeIndex = tree_[nodeIndex].second[bin].second;
 					continue;
 				}
 				
+				// No? Then set the partial sums, which will remain unchanged for this particular node
+				tree_[nodeIndex].second[bin].first = curr_num_keys_;
+					
+				//std::cerr << "set bin=" << bin << " to: " << curr_num_keys_ << std::endl;
+				
 				// Can we continue with the next level?
 				if (shift_ >= (level + 1) * log_num_bins_) {
-					// Then set the partial sums, which will remain unchanged for this particular node
-					tree_[nodeIndex].second[bin].first = curr_num_keys_;
-					
+					//std::cerr << "Create new Node" << std::endl;
+
 					// Create the new node
 					std::vector<Range> newNode;
 					newNode.assign(num_bins_, {Infinity, Infinity});					
 					
 					// Compute the lowest key and attach the new node to the bin
-					const auto newLower = lower + bin * (1ull << (shift_ - level * log_num_bins_));
+					const auto newLower = lower + bin * (1ull << width);
 					tree_.push_back({{level + 1, newLower}, newNode});
 										
+					//std::cerr << "\tnewLower=" << newLower << std::endl;
+					
 					// Point to the new node
 					tree_[nodeIndex].second[bin].second = tree_.size() - 1;
 					nodeIndex = tree_.size() - 1;
@@ -127,9 +151,76 @@ class Builder {
 		
 		if (!curr_num_keys_)
 			tree_.push_back({{0, 0}, std::vector<Range>(num_bins_, {Infinity, Infinity})});
+		//std::cerr << "-----------------" << std::endl << "insert key: " << key << std::endl;
 		Insert();
+		//std::cerr << std::endl;
   }
 
+  void PruneAndFlatten() {
+		// Init the helpers
+		std::queue<Elem> nodes;
+		std::vector<unsigned> mapping(tree_.size(), Infinity);
+		unsigned curr = 0;
+		
+		// Init the table
+		table_.resize(tree_.size() * num_bins_);
+		
+		// Init the node, which covers the range `curr` := [a, b[
+		const auto AnalyzeNode = [&](unsigned nodeIndex, Range curr) -> void {
+			unsigned b = curr.second;
+			for (unsigned backIndex = num_bins_; backIndex; --backIndex) {
+				const auto bin = backIndex - 1;
+				
+				// Empty bin?
+				if (tree_[nodeIndex].second[bin].first == Infinity) {
+					// Then mark it as a leaf which points to the upper bound
+					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = b | Leaf;
+					continue;
+				}
+				
+				// Is this bin responsible for more than `max_error` keys?
+				const auto firstPos = tree_[nodeIndex].second[bin].first;
+				if (b - firstPos > max_error_) {
+					const auto nextNode = tree_[nodeIndex].second[bin].second;
+					assert(nextNode != Infinity);
+					
+					// Push the next node into the queue
+					nodes.push({nextNode, {firstPos, b}});
+					
+					// And add the pointer in the table. We postpone the mapping for later, once the BFS is finished
+					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = nextNode;
+				} else {
+					// No, then mark it as a leaf which points to the lower bound
+					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = firstPos | Leaf;
+				}
+				
+				// Reset the last position
+				b = firstPos;
+			}
+		};
+		
+		// Travers the tree and fill the table as in a mirrored BFS (due to the fact that we must iterate the bins in reversed order)
+		nodes.push({0, {0, curr_num_keys_}});
+		while (!nodes.empty()) {
+			const auto [nodeIndex, range] = nodes.front();
+			nodes.pop();
+			mapping[nodeIndex] = curr++;
+			AnalyzeNode(nodeIndex, range);
+		}
+		
+		// Resize the table
+		table_.resize(curr * num_bins_);
+		
+		// And update the pointers with their mapping
+		for (unsigned index = 0, limit = table_.size(); index != limit; ++index) {
+			for (unsigned bin = 0; bin != num_bins_; ++bin) {
+				if ((table_[(index << log_num_bins_) + bin] & Leaf) == 0)
+					table_[(index << log_num_bins_) + bin] = mapping[table_[(index << log_num_bins_) + bin]] << log_num_bins_;
+			}
+		}
+		tree_.clear();
+	}
+  
 	void BuildOffline() {
 		// Init the node, which covers the range `curr` := [a, b[
 		auto initNode = [&](unsigned nodeIndex, Range curr) -> void {
@@ -144,7 +235,7 @@ class Builder {
 				
 				// Is the first bin or a new one?
 				if ((!currBin.has_value()) || (bin != currBin.value())) {
-					// Iterate the bins which has not been touched and set for them an empty range
+					// Iterate the bins which have not been touched and set for them an empty range
 					for (unsigned iter = currBin.has_value() ? (currBin.value() + 1) : 0; iter != bin; ++iter) {
 						tree_[nodeIndex].second[iter] = {index, index};
 					}
@@ -177,7 +268,7 @@ class Builder {
 			auto lower = tree_[node].first.second;
 			for (unsigned index = 0; index != num_bins_; ++index) {
 				// Should we split further?
-				if (tree_[node].second[index].second - tree_[node].second[index].first >= max_error_) {
+				if (tree_[node].second[index].second - tree_[node].second[index].first > max_error_) {
 					// Corner-case: is #keys > range? Then create a leaf (this can only happen for datasets with duplicates)
 					auto size = tree_[node].second[index].second - tree_[node].second[index].first;
 					if (size >= (1ull << (shift_ - level * log_num_bins_))) {
@@ -197,7 +288,8 @@ class Builder {
 					initNode(tree_.size() - 1, tree_[node].second[index]);
 					
 					// Reset this node (no leaf, pointer to child)
-					tree_[node].second[index] = {size, tree_.size() - 1};
+					// TODO: is this change fine?
+					tree_[node].second[index] = {0, tree_.size() - 1};
 					
 					// And push it into the queue
 					nodes.push(tree_.size() - 1);
@@ -242,18 +334,19 @@ class Builder {
 			}
 		}
 		
-		// And now set the count of nodes in subtree (bottom-up)
+		// And now set the count of nodes in subtree and the first node in the subtree (bottom-up)
 		auto access = [&](unsigned vertex) -> unsigned { return vertex * (maxLevel + 1); };
 		std::vector<std::pair<unsigned, unsigned>> helper(tree_.size() * (maxLevel + 1), {Infinity, 0});
 		for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
 			auto vertex = limit - index - 1;
+			const auto currLvl = tree_[vertex].first.first;
 			
 			// Add the vertex itself
-			helper[access(vertex) + tree_[vertex].first.first] = {vertex, 1};
+			helper[access(vertex) + currLvl] = {vertex, 1};
 			
 			// And all subtrees, if any
 			for (auto v : graph[vertex]) {
-				for (unsigned lvl = 0; lvl <= maxLevel; ++lvl) {
+				for (unsigned lvl = currLvl; lvl <= maxLevel; ++lvl) {
 					helper[access(vertex) + lvl].first = std::min(helper[access(vertex) + lvl].first, helper[access(v) + lvl].first);
 					helper[access(vertex) + lvl].second += helper[access(v) + lvl].second;
 				}
@@ -287,7 +380,7 @@ class Builder {
 				order[rowIndex] = tempSize++;
 				return;
 			}
-			splitLevel = (lh + splitLevel) / 2; 
+			splitLevel = lh + (splitLevel - lh) / 2; 
 
 			// Recursion
 			fill(rowIndex, lh, splitLevel);

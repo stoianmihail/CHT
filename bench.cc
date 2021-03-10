@@ -34,7 +34,7 @@ void CreateInput(std::vector<KeyType>& keys, std::vector<KeyType>& queries) {
 }
 
 template <class KeyType>
-void Benchmark() {
+void Benchmark(bool single_pass) {
 	std::vector<KeyType> keys, queries;
 	CreateInput<KeyType>(keys, queries);
 	
@@ -45,8 +45,9 @@ void Benchmark() {
 			// Build both CHTs
 			KeyType min = keys.front();
 			KeyType max = keys.back();
-			cht::Builder<KeyType> chtb(min, max, numBins, maxError, false);
-			cht::Builder<KeyType> cchtb(min, max, numBins, maxError, true);
+			
+			cht::Builder<KeyType> chtb(min, max, numBins, maxError, false, single_pass);
+			cht::Builder<KeyType> cchtb(min, max, numBins, maxError, true, single_pass);
 			for (const auto& key : keys) chtb.AddKey(key), cchtb.AddKey(key); 
 			auto cht = chtb.Finalize();
 			auto ccht = cchtb.Finalize();
@@ -66,7 +67,7 @@ void Benchmark() {
 				
 				auto stop = high_resolution_clock::now();
 				double answer = duration_cast<nanoseconds>(stop - start).count();
-				std::cout << type << "<" << (std::is_same<KeyType, uint32_t>::value ? "uint32_t" : "uint64_t") << ">(numBins=" << numBins << ", maxError=" << maxError << "): " << answer << " ns" << std::endl;
+				std::cout << type << "<" << (std::is_same<KeyType, uint32_t>::value ? "uint32_t" : "uint64_t") << ">(numBins=" << numBins << ", maxError=" << maxError << ", single_pass=" << single_pass << "): " << answer << " ns" << std::endl;
 			};
 			
 			for (unsigned index = 0; index != 5; ++index) {
@@ -78,7 +79,9 @@ void Benchmark() {
 }
 
 int main(void) {
-	Benchmark<uint32_t>();
-	Benchmark<uint64_t>();
+	Benchmark<uint32_t>(true);
+	Benchmark<uint64_t>(true);
+	Benchmark<uint32_t>(false);
+	Benchmark<uint64_t>(false);
 	return 0;
 }
