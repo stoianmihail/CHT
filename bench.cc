@@ -55,7 +55,7 @@ void Compare() {
 			KeyType min = keys.front();
 			KeyType max = keys.back();
 			
-			cht::Builder<KeyType> spchtb(min, max, numBins, maxError, false, true);
+			cht::Builder<KeyType> spchtb(min, max, numBins, maxError, true, false);
 			cht::Builder<KeyType> ochtb(min, max, numBins, maxError, false, false);
 			for (const auto& key : keys) spchtb.AddKey(key), ochtb.AddKey(key); 
 			auto spcht = spchtb.Finalize();
@@ -95,8 +95,8 @@ void Benchmark(bool single_pass) {
 			KeyType min = keys.front();
 			KeyType max = keys.back();
 			
-			cht::Builder<KeyType> chtb(min, max, numBins, maxError, false, single_pass);
-			cht::Builder<KeyType> cchtb(min, max, numBins, maxError, true, single_pass);
+			cht::Builder<KeyType> chtb(min, max, numBins, maxError, single_pass, false);
+			cht::Builder<KeyType> cchtb(min, max, numBins, maxError, single_pass, true);
 			for (const auto& key : keys) chtb.AddKey(key), cchtb.AddKey(key); 
 			auto cht = chtb.Finalize();
 			auto ccht = cchtb.Finalize();

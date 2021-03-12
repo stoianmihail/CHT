@@ -14,14 +14,14 @@ template <class KeyType>
 class Builder {
  public:
 	// The cache-oblivious structure makes sense when the tree becomes deep (`numBins` or `maxError` become small)
-  Builder(KeyType min_key, KeyType max_key, size_t num_bins, size_t max_error, bool use_cache = false, bool single_pass = false)
+  Builder(KeyType min_key, KeyType max_key, size_t num_bins, size_t max_error, bool single_pass = false, bool use_cache = false)
       : min_key_(min_key),
         max_key_(max_key),
         num_bins_(num_bins),
         log_num_bins_(computeLog(num_bins_)),
         max_error_(max_error),
+				single_pass_(use_cache ? false : single_pass),
         use_cache_(use_cache),
-        single_pass_(use_cache ? false : single_pass),
         curr_num_keys_(0),
         prev_key_(min_key) {
 					assert((num_bins_ & (num_bins_ - 1)) == 0);
@@ -405,8 +405,8 @@ class Builder {
   const size_t num_bins_;
 	const size_t log_num_bins_;
   const size_t max_error_;
-	const bool use_cache_;
 	const bool single_pass_;
+	const bool use_cache_;
 	
 	size_t curr_num_keys_;
   KeyType prev_key_;
