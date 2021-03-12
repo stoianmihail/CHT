@@ -1,6 +1,7 @@
 #include <iostream>
 #include <chrono>
 #include <random>
+#include <fstream>
 
 #include "include/cht/builder.h"
 #include "include/cht/cht.h"
@@ -28,7 +29,7 @@ static std::vector<KeyType> Generate(unsigned size, KeyType maxValue, bool withS
 
 template <class KeyType>
 void CreateInput(std::vector<KeyType>& keys, std::vector<KeyType>& queries) {
-	keys = Generate(5e6, std::numeric_limits<KeyType>::max(), true);
+	keys = Generate(1e6, std::numeric_limits<KeyType>::max(), true);
   queries = Generate(1e6, std::numeric_limits<KeyType>::max());
 	std::cout << "Generated " << keys.size() << " keys and " << queries.size() << " lookup keys!" << std::endl; 
 }
@@ -37,6 +38,13 @@ template <class KeyType>
 void Benchmark(bool single_pass) {
 	std::vector<KeyType> keys, queries;
 	CreateInput<KeyType>(keys, queries);
+	
+#if 1
+	std::ofstream out("keys.out");
+	for (unsigned index = 0; index != keys.size(); ++index)
+		out << keys[index] << std::endl;
+	out << std::endl;
+#endif
 	
 	for (unsigned i = 1; i <= 10; ++i) {
 		for (unsigned j = 1; j <= 10; ++j) {

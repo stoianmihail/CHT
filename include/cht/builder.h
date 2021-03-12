@@ -106,19 +106,13 @@ class Builder {
 			// Traverse the tree from root
 			for (unsigned level = 0, nodeIndex = 0; (shift_ >= level * log_num_bins_); ++level) {
 				const auto [_, lower] = tree_[nodeIndex].first;
-				//std::cerr << "lower=" << lower << std::endl;
-				
 				// Compute the width and the bin for this node
 				unsigned width = shift_ - level * log_num_bins_;
 				auto bin = (key - min_key_ - lower) >> width;
 				
-				
-				//std::cerr << "nodeIndex=" << nodeIndex << " level=" << level << " width=" << width << " bin=" << bin << std::endl;
-				
-				
 				// Did we already visit this node?
 				if (tree_[nodeIndex].second[bin].first != Infinity) {
-					//std::cerr << "bin=" << bin << " already visited!" << std::endl;
+					assert(tree_[nodeIndex].second[bin].second != Infinity);
 					nodeIndex = tree_[nodeIndex].second[bin].second;
 					continue;
 				}
@@ -126,12 +120,8 @@ class Builder {
 				// No? Then set the partial sums, which will remain unchanged for this particular node
 				tree_[nodeIndex].second[bin].first = curr_num_keys_;
 					
-				//std::cerr << "set bin=" << bin << " to: " << curr_num_keys_ << std::endl;
-				
 				// Can we continue with the next level?
 				if (shift_ >= (level + 1) * log_num_bins_) {
-					//std::cerr << "Create new Node" << std::endl;
-
 					// Create the new node
 					std::vector<Range> newNode;
 					newNode.assign(num_bins_, {Infinity, Infinity});					
@@ -139,8 +129,6 @@ class Builder {
 					// Compute the lowest key and attach the new node to the bin
 					const auto newLower = lower + bin * (1ull << width);
 					tree_.push_back({{level + 1, newLower}, newNode});
-										
-					//std::cerr << "\tnewLower=" << newLower << std::endl;
 					
 					// Point to the new node
 					tree_[nodeIndex].second[bin].second = tree_.size() - 1;
@@ -151,9 +139,7 @@ class Builder {
 		
 		if (!curr_num_keys_)
 			tree_.push_back({{0, 0}, std::vector<Range>(num_bins_, {Infinity, Infinity})});
-		//std::cerr << "-----------------" << std::endl << "insert key: " << key << std::endl;
 		Insert();
-		//std::cerr << std::endl;
   }
 
   void PruneAndFlatten() {
@@ -178,13 +164,18 @@ class Builder {
 					continue;
 				}
 				
+				// Is it a leaf in the original tree, i.e. at the next level the width would have become negative?
+				if (tree_[nodeIndex].second[bin].second == Infinity) {
+					// Mark as leaf, even though it could cover more than `max_error` keys (this can only happen for datasets with duplicates) 
+					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = tree_[nodeIndex].second[bin].first | Leaf;
+					continue;
+				}
+				
 				// Is this bin responsible for more than `max_error` keys?
 				const auto firstPos = tree_[nodeIndex].second[bin].first;
 				if (b - firstPos > max_error_) {
-					const auto nextNode = tree_[nodeIndex].second[bin].second;
-					assert(nextNode != Infinity);
-					
 					// Push the next node into the queue
+					const unsigned nextNode = tree_[nodeIndex].second[bin].second;
 					nodes.push({nextNode, {firstPos, b}});
 					
 					// And add the pointer in the table. We postpone the mapping for later, once the BFS is finished
@@ -199,20 +190,21 @@ class Builder {
 			}
 		};
 		
-		// Travers the tree and fill the table as in a mirrored BFS (due to the fact that we must iterate the bins in reversed order)
+		// Traverse the tree and fill the table as in a mirrored BFS (due to the fact that we must iterate the bins in reversed order)
 		nodes.push({0, {0, curr_num_keys_}});
 		while (!nodes.empty()) {
-			const auto [nodeIndex, range] = nodes.front();
+			const auto elem = nodes.front();
 			nodes.pop();
-			mapping[nodeIndex] = curr++;
-			AnalyzeNode(nodeIndex, range);
+			mapping[elem.first] = curr++;
+			AnalyzeNode(elem.first, elem.second);
 		}
-		
+
 		// Resize the table
 		table_.resize(curr * num_bins_);
-		
+
 		// And update the pointers with their mapping
-		for (unsigned index = 0, limit = table_.size(); index != limit; ++index) {
+		for (unsigned index = 0, limit = curr; index != limit; ++index) {
+			assert(mapping[index] != Infinity);
 			for (unsigned bin = 0; bin != num_bins_; ++bin) {
 				if ((table_[(index << log_num_bins_) + bin] & Leaf) == 0)
 					table_[(index << log_num_bins_) + bin] = mapping[table_[(index << log_num_bins_) + bin]] << log_num_bins_;
