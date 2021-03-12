@@ -32,12 +32,8 @@ class Builder {
 					assert(lg >= log_num_bins_);
 					shift_ = lg - log_num_bins_;
 					
-					if ((use_cache) && (single_pass)) {
-						std::cerr << "Cache-oblivious and single-pass not supported yet! In this case it will ignore the single-pass option" << std::endl;
-					}
-					
-					std::cerr << "bins=" << num_bins << " error=" << max_error << std::endl;
-					std::cerr << "!!! lg=" << lg << " shift=" << shift_ << std::endl;
+					if ((use_cache) && (single_pass))
+						std::cerr << "Cache-oblivious and single-pass not supported yet! In this case it will ignore the single-pass option." << std::endl;
 				}
 
   // Adds a key. Assumes that keys are stored in a dense array.
@@ -63,10 +59,11 @@ class Builder {
 		if (!single_pass_) {
 			BuildOffline();
 			
-			if (!use_cache_)
+			if (!use_cache_) {
 				Flatten();
-			else
+			} else {
 				CacheObliviousFlatten();
+			}
 		} else {
 			PruneAndFlatten();
 		}
@@ -136,7 +133,7 @@ class Builder {
 				}
 			}
 		};
-		
+
 		if (!curr_num_keys_)
 			tree_.push_back({{0, 0}, std::vector<Range>(num_bins_, {Infinity, Infinity})});
 		Insert();
@@ -147,12 +144,10 @@ class Builder {
 		std::queue<Elem> nodes;
 		std::vector<unsigned> mapping(tree_.size(), Infinity);
 		unsigned curr = 0;
-		
-		// Init the table
-		table_.resize(tree_.size() * num_bins_);
-		
+
 		// Init the node, which covers the range `curr` := [a, b[
 		const auto AnalyzeNode = [&](unsigned nodeIndex, Range curr) -> void {
+			std::vector<unsigned> tmp(num_bins_, 0);
 			unsigned b = curr.second;
 			for (unsigned backIndex = num_bins_; backIndex; --backIndex) {
 				const auto bin = backIndex - 1;
@@ -160,14 +155,14 @@ class Builder {
 				// Empty bin?
 				if (tree_[nodeIndex].second[bin].first == Infinity) {
 					// Then mark it as a leaf which points to the upper bound
-					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = b | Leaf;
+					tmp[bin] = b | Leaf;
 					continue;
 				}
 				
 				// Is it a leaf in the original tree, i.e. at the next level the width would have become negative?
 				if (tree_[nodeIndex].second[bin].second == Infinity) {
 					// Mark as leaf, even though it could cover more than `max_error` keys (this can only happen for datasets with duplicates) 
-					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = tree_[nodeIndex].second[bin].first | Leaf;
+					tmp[bin] = tree_[nodeIndex].second[bin].first | Leaf;
 					continue;
 				}
 				
@@ -179,18 +174,21 @@ class Builder {
 					nodes.push({nextNode, {firstPos, b}});
 					
 					// And add the pointer in the table. We postpone the mapping for later, once the BFS is finished
-					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = nextNode;
+					tmp[bin] = nextNode;
 				} else {
 					// No, then mark it as a leaf which points to the lower bound
-					table_[(mapping[nodeIndex] << log_num_bins_) + bin] = firstPos | Leaf;
+					tmp[bin] = firstPos | Leaf;
 				}
 				
 				// Reset the last position
 				b = firstPos;
 			}
+			
+			// And update the table
+			table_.insert(table_.end(), tmp.begin(), tmp.end());
 		};
 		
-		// Traverse the tree and fill the table as in a mirrored BFS (due to the fact that we must iterate the bins in reversed order)
+		// Traverse the tree and fill the table with BFS
 		nodes.push({0, {0, curr_num_keys_}});
 		while (!nodes.empty()) {
 			const auto elem = nodes.front();
@@ -198,10 +196,8 @@ class Builder {
 			mapping[elem.first] = curr++;
 			AnalyzeNode(elem.first, elem.second);
 		}
-
-		// Resize the table
-		table_.resize(curr * num_bins_);
-
+		assert(table_.size() == curr * num_bins_);
+		
 		// And update the pointers with their mapping
 		for (unsigned index = 0, limit = curr; index != limit; ++index) {
 			assert(mapping[index] != Infinity);
@@ -280,7 +276,6 @@ class Builder {
 					initNode(tree_.size() - 1, tree_[node].second[index]);
 					
 					// Reset this node (no leaf, pointer to child)
-					// TODO: is this change fine?
 					tree_[node].second[index] = {0, tree_.size() - 1};
 					
 					// And push it into the queue

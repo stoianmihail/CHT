@@ -35,12 +35,53 @@ void CreateInput(std::vector<KeyType>& keys, std::vector<KeyType>& queries) {
 }
 
 template <class KeyType>
+void Compare() {
+	std::vector<KeyType> keys, queries;
+	CreateInput<KeyType>(keys, queries);
+
+#if 1
+	std::ofstream out("compare_keys.out");
+	for (unsigned index = 0; index != keys.size(); ++index)
+		out << keys[index] << std::endl;
+	out << std::endl;
+#endif
+	
+	for (unsigned i = 1; i <= 10; ++i) {
+		for (unsigned j = 1; j <= 10; ++j) {
+			auto numBins = 1u << i, maxError = 1u << j;
+			std::cerr << "numBins=" << numBins << " maxError=" << maxError << std::endl;
+			
+			// Build both CHTs
+			KeyType min = keys.front();
+			KeyType max = keys.back();
+			
+			cht::Builder<KeyType> spchtb(min, max, numBins, maxError, false, true);
+			cht::Builder<KeyType> ochtb(min, max, numBins, maxError, false, false);
+			for (const auto& key : keys) spchtb.AddKey(key), ochtb.AddKey(key); 
+			auto spcht = spchtb.Finalize();
+			auto ocht = ochtb.Finalize();
+			
+			// Compare pure lookups
+			auto Compare = [&]() -> void {
+				for (auto query : queries) {
+					auto b1 = spcht.GetSearchBound(query);
+					auto b2 = ocht.GetSearchBound(query);
+					assert(b1.first == b2.first && b1.second == b2.second);
+				}
+			};
+			
+			Compare();
+		}
+	}
+}
+
+template <class KeyType>
 void Benchmark(bool single_pass) {
 	std::vector<KeyType> keys, queries;
 	CreateInput<KeyType>(keys, queries);
 	
 #if 1
-	std::ofstream out("keys.out");
+	std::ofstream out("benchmark_keys.out");
 	for (unsigned index = 0; index != keys.size(); ++index)
 		out << keys[index] << std::endl;
 	out << std::endl;
@@ -87,6 +128,12 @@ void Benchmark(bool single_pass) {
 }
 
 int main(void) {
+#if 0
+	Compare<uint32_t>();
+	Compare<uint64_t>();
+#endif
+	
+	// Benchmark (needs big RAM)
 	Benchmark<uint32_t>(true);
 	Benchmark<uint64_t>(true);
 	Benchmark<uint32_t>(false);
