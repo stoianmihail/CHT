@@ -19,8 +19,7 @@ void CompactHistTreeExample(bool useCache = false) {
   KeyType max = keys.back();
   const unsigned numBins = 64; // each node will have 64 separate bins
   const unsigned maxError = 4; // the error of the index
-	const bool single_pass = false;
-  cht::Builder<KeyType> chtb(min, max, numBins, maxError, useCache, single_pass);
+  cht::Builder<KeyType> chtb(min, max, numBins, maxError, useCache);
   for (const auto& key : keys) chtb.AddKey(key);
 	cht::CompactHistTree<KeyType> cht = chtb.Finalize();
 	
