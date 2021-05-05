@@ -66,15 +66,15 @@ class CompactHistTree {
 			width -= log_num_bins_;
 		} while (true);
   }
-	 
-	const KeyType min_key_;
-  const KeyType max_key_;
-  const size_t num_keys_;
-  const size_t num_bins_;
-	const size_t log_num_bins_;
-	const size_t max_error_;
-	const size_t shift_;
-		
+
+  KeyType min_key_;
+  KeyType max_key_;
+  size_t num_keys_;
+  size_t num_bins_;
+  size_t log_num_bins_;
+  size_t max_error_;
+  size_t shift_;
+
   std::vector<unsigned> table_;
 };
 
