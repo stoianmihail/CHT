@@ -7,7 +7,7 @@ namespace cht {
 
 struct SearchBound {
   size_t begin;
-  size_t end; // Exclusive.
+  size_t end;  // Exclusive.
 };
 
-} // namespace cht
+}  // namespace cht
