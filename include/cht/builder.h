@@ -418,10 +418,10 @@ class Builder {
         // Leaf node?
         if (tree_[index].second[bin].first & Leaf) {
           // Set the partial sum.
-          table_[((static_cast<size_t>(order[index]) << log_num_bins_) + bin] = tree_[index].second[bin].first;
+          table_[(static_cast<size_t>(order[index]) << log_num_bins_) + bin] = tree_[index].second[bin].first;
         } else {
           // Set the pointer.
-          table_[((static_cast<size_t>(order[index]) << log_num_bins_) + bin] = order[tree_[index].second[bin].second];
+          table_[(static_cast<size_t>(order[index]) << log_num_bins_) + bin] = order[tree_[index].second[bin].second];
         }
       }
     }
