@@ -212,8 +212,7 @@ class Builder {
       assert(mapping[index] != Infinity);
       for (unsigned bin = 0; bin != num_bins_; ++bin) {
         if ((table_[(index << log_num_bins_) + bin] & Leaf) == 0)
-          table_[(index << log_num_bins_) + bin] =
-              mapping[table_[(index << log_num_bins_) + bin]] << log_num_bins_;
+          table_[(index << log_num_bins_) + bin] = mapping[table_[(index << log_num_bins_) + bin]];
       }
     }
     tree_.clear();
@@ -278,7 +277,7 @@ class Builder {
           // happen for datasets with duplicates).
           auto size = tree_[node].second[index].second -
                       tree_[node].second[index].first;
-          if (size >= (1ull << (shift_ - level * log_num_bins_))) {
+          if (size > (1ull << (shift_ - level * log_num_bins_))) {
             tree_[node].second[index].first |= Leaf;
             continue;
           }
