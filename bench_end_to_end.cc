@@ -60,7 +60,7 @@ class NonOwningMultiMap {
       : data_(elements) {
     assert(elements.size() > 0);
 
-    // // Create builder.
+    // Create builder.
     const auto min_key = data_.front().first;
     const auto max_key = data_.back().first;
     cht::Builder<KeyType> chtb(min_key, max_key, num_bins, max_error,
@@ -109,12 +109,14 @@ void Run(const string& data_file, const string lookup_file,
          const uint32_t num_bins, const uint32_t max_error,
          const bool single_pass, const bool ccht) {
   // Load data
+  std::cerr << "Load data.." << std::endl;
   vector<KeyType> keys = util::load_data<KeyType>(data_file);
   vector<pair<KeyType, uint64_t>> elements = util::add_values(keys);
   vector<Lookup<KeyType>> lookups =
       util::load_data<Lookup<KeyType>>(lookup_file);
 
   // Build index
+  std::cerr << "Build index.." << std::endl;
   auto build_begin = chrono::high_resolution_clock::now();
   NonOwningMultiMap<KeyType, uint64_t> map(elements, num_bins, max_error,
                                            single_pass, ccht);
@@ -124,6 +126,7 @@ void Run(const string& data_file, const string lookup_file,
           .count();
 
   // Run queries
+  std::cerr << "Run queries.." << std::endl;
   vector<uint64_t> lookup_ns;
   for (uint32_t i = 0; i < 3; i++) {
     auto lookup_begin = chrono::high_resolution_clock::now();

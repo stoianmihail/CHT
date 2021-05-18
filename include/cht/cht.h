@@ -51,18 +51,19 @@ class CompactHistTree {
     // Edge cases
     if (key <= min_key_) return 0;
     if (key >= max_key_) return num_keys_;
+
     key -= min_key_;
 
     auto width = shift_;
-    auto next = 0;
+    unsigned next = 0;
     do {
       // Get the bin
       auto bin = key >> width;
-      next = table_[next + bin];
+      next = table_[(next << log_num_bins_) + bin];
 
       // Is it a leaf?
       if (next & Leaf) return next & Mask;
-
+      
       // Prepare for the next level
       key -= bin << width;
       width -= log_num_bins_;
