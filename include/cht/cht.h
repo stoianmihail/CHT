@@ -17,7 +17,7 @@ class CompactHistTree {
 
   CompactHistTree(KeyType min_key, KeyType max_key, size_t num_keys,
                   size_t num_bins, size_t log_num_bins, size_t max_error,
-                  size_t shift, std::vector<uint32_t> table)
+                  size_t shift, std::vector<unsigned> table)
       : min_key_(min_key),
         max_key_(max_key),
         num_keys_(num_keys),
@@ -26,7 +26,7 @@ class CompactHistTree {
         max_error_(max_error),
         shift_(shift),
         table_(std::move(table)) {}
-
+        
   // Returns a search bound [`begin`, `end`) around the estimated position.
   SearchBound GetSearchBound(const KeyType key) const {
     const size_t begin = Lookup(key);
@@ -54,15 +54,15 @@ class CompactHistTree {
     key -= min_key_;
 
     auto width = shift_;
-    unsigned next = 0;
+    size_t next = 0;
     do {
       // Get the bin
-      auto bin = key >> width;
+      KeyType bin = key >> width;
       next = table_[(next << log_num_bins_) + bin];
 
       // Is it a leaf?
       if (next & Leaf) return next & Mask;
-
+      
       // Prepare for the next level
       key -= bin << width;
       width -= log_num_bins_;

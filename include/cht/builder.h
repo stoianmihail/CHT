@@ -205,10 +205,10 @@ class Builder {
       mapping[elem.first] = curr++;
       AnalyzeNode(elem.first, elem.second);
     }
-    assert(table_.size() == curr * num_bins_);
+    assert(table_.size() == static_cast<size_t>(curr) * num_bins_);
 
     // And update the pointers with their mapping.
-    for (unsigned index = 0, limit = curr; index != limit; ++index) {
+    for (size_t index = 0, limit = curr; index != limit; ++index) {
       assert(mapping[index] != Infinity);
       for (unsigned bin = 0; bin != num_bins_; ++bin) {
         if ((table_[(index << log_num_bins_) + bin] & Leaf) == 0)
@@ -267,42 +267,42 @@ class Builder {
       nodes.pop();
 
       // Consider each bin and decide whether we should split it.
-      auto level = tree_[node].first.first;
-      auto lower = tree_[node].first.second;
-      for (unsigned index = 0; index != num_bins_; ++index) {
+      unsigned level = tree_[node].first.first;
+      KeyType lower = tree_[node].first.second;
+      for (unsigned bin = 0; bin != num_bins_; ++bin) {
         // Should we split further?
-        if (tree_[node].second[index].second - tree_[node].second[index].first >
+        if (tree_[node].second[bin].second - tree_[node].second[bin].first >
             max_error_) {
           // Corner-case: is #keys > range? Then create a leaf (this can only
           // happen for datasets with duplicates).
-          auto size = tree_[node].second[index].second -
-                      tree_[node].second[index].first;
+          auto size = tree_[node].second[bin].second -
+                      tree_[node].second[bin].first;
           if (size > (1ull << (shift_ - level * log_num_bins_))) {
-            tree_[node].second[index].first |= Leaf;
+            tree_[node].second[bin].first |= Leaf;
             continue;
           }
 
           // Alloc the next node.
           std::vector<Range> newNode;
-          newNode.assign(num_bins_, {tree_[node].second[index].second,
-                                     tree_[node].second[index].second});
+          newNode.assign(num_bins_, {tree_[node].second[bin].second,
+                                     tree_[node].second[bin].second});
 
           // And add it to the tree.
           auto newLower =
-              lower + index * (1ull << (shift_ - level * log_num_bins_));
+              lower + bin * (1ull << (shift_ - level * log_num_bins_));
           tree_.push_back({{level + 1, newLower}, newNode});
 
           // Init it
-          initNode(tree_.size() - 1, tree_[node].second[index]);
+          initNode(tree_.size() - 1, tree_[node].second[bin]);
 
           // Reset this node (no leaf, pointer to child).
-          tree_[node].second[index] = {0, tree_.size() - 1};
+          tree_[node].second[bin] = {0, tree_.size() - 1};
 
           // And push it into the queue.
           nodes.push(tree_.size() - 1);
         } else {
           // Leaf
-          tree_[node].second[index].first |= Leaf;
+          tree_[node].second[bin].first |= Leaf;
         }
       }
     }
@@ -310,15 +310,13 @@ class Builder {
 
   // Flatten the layout of the tree.
   void Flatten() {
-    assert((tree_.size() & Leaf) == 0);
-    table_.resize(tree_.size() * num_bins_);
-    for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
+    table_.resize(static_cast<size_t>(tree_.size()) * num_bins_);
+    for (size_t index = 0, limit = tree_.size(); index != limit; ++index) {
       for (unsigned bin = 0; bin != num_bins_; ++bin) {
         // Leaf node?
         if (tree_[index].second[bin].first & Leaf) {
           // Set the partial sum.
-          table_[(index << log_num_bins_) + bin] =
-              tree_[index].second[bin].first;
+          table_[(index << log_num_bins_) + bin] = tree_[index].second[bin].first;
         } else {
           // Set the pointer.
           table_[(index << log_num_bins_) + bin] = tree_[index].second[bin].second;
@@ -346,11 +344,11 @@ class Builder {
 
     // And now set the count of nodes in subtree and the first node in the
     // subtree (bottom-up).
-    auto access = [&](unsigned vertex) -> unsigned {
-      return vertex * (maxLevel + 1);
+    auto access = [&](unsigned vertex) -> size_t {
+      return static_cast<size_t>(vertex) * (maxLevel + 1);
     };
-    std::vector<std::pair<unsigned, unsigned>> helper(
-        tree_.size() * (maxLevel + 1), {Infinity, 0});
+
+    std::vector<std::pair<unsigned, unsigned>> helper(static_cast<size_t>(tree_.size()) * (maxLevel + 1), {Infinity, 0});
     for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
       auto vertex = limit - index - 1;
       const auto currLvl = tree_[vertex].first.first;
@@ -414,18 +412,16 @@ class Builder {
     fill(0, 0, maxLevel + 1);
 
     // Flatten with `order`.
-    assert((tree_.size() & Leaf) == 0);
-    table_.resize(tree_.size() * num_bins_);
+    table_.resize(static_cast<size_t>(tree_.size()) * num_bins_);
     for (unsigned index = 0, limit = tree_.size(); index != limit; ++index) {
       for (unsigned bin = 0; bin != num_bins_; ++bin) {
         // Leaf node?
         if (tree_[index].second[bin].first & Leaf) {
           // Set the partial sum.
-          table_[(order[index] << log_num_bins_) + bin] =
-              tree_[index].second[bin].first;
+          table_[((static_cast<size_t>(order[index]) << log_num_bins_) + bin] = tree_[index].second[bin].first;
         } else {
           // Set the pointer.
-          table_[(order[index] << log_num_bins_) + bin] = order[tree_[index].second[bin].second];
+          table_[((static_cast<size_t>(order[index]) << log_num_bins_) + bin] = order[tree_[index].second[bin].second];
         }
       }
     }
