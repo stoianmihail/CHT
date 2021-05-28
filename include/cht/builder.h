@@ -20,7 +20,7 @@ class Builder {
       : min_key_(min_key),
         max_key_(max_key),
         num_bins_(num_bins),
-        log_num_bins_(computeLog(num_bins_)),
+        log_num_bins_(computeLog(static_cast<uint64_t>(num_bins_))),
         max_error_(max_error),
         single_pass_(use_cache ? false : single_pass),
         use_cache_(use_cache),
