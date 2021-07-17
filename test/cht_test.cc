@@ -9,7 +9,7 @@
 const size_t kNumKeys = 1000;
 // Number of iterations (seeds) of random positive and negative test cases.
 const size_t kNumIterations = 10;
-const size_t kNumRadixBits = 18;
+const size_t kNumBins = 32;
 const size_t kMaxError = 32;
 
 namespace {
@@ -37,36 +37,6 @@ std::vector<KeyType> CreateUniqueRandomKeys(size_t seed) {
   return sorted_keys;
 }
 
-// Creates lognormal distributed keys, possibly with duplicates.
-template <class KeyType>
-std::vector<KeyType> CreateSkewedKeys(size_t seed) {
-  std::vector<KeyType> keys;
-  keys.reserve(kNumKeys);
-
-  // Generate lognormal values.
-  std::mt19937 g(seed);
-  std::lognormal_distribution<double> d(/*mean*/ 0, /*stddev=*/2);
-  std::vector<double> lognormal_values;
-  lognormal_values.reserve(kNumKeys);
-  for (size_t i = 0; i < kNumKeys; ++i) lognormal_values.push_back(d(g));
-  const auto min_max =
-      std::minmax_element(lognormal_values.begin(), lognormal_values.end());
-  const double min = *min_max.first;
-  const double max = *min_max.second;
-  const double diff = max - min;
-
-  // Scale values to the entire `KeyType` domain.
-  const auto domain =
-      std::numeric_limits<KeyType>::max() - std::numeric_limits<KeyType>::min();
-  for (size_t i = 0; i < kNumKeys; ++i) {
-    const double ratio = (lognormal_values[i] - min) / diff;
-    keys.push_back(ratio * domain);
-  }
-
-  std::sort(keys.begin(), keys.end());
-  return keys;
-}
-
 template <class KeyType>
 cht::CompactHistTree<KeyType> CreateCompactHistTree(const std::vector<KeyType>& keys) {
   auto min = std::numeric_limits<KeyType>::min();
@@ -75,7 +45,7 @@ cht::CompactHistTree<KeyType> CreateCompactHistTree(const std::vector<KeyType>& 
     min = keys.front();
     max = keys.back();
   }
-  cht::Builder<KeyType> chtb(min, max, kNumRadixBits, kMaxError);
+  cht::Builder<KeyType> chtb(min, max, kNumBins, kMaxError);
   for (const auto& key : keys) chtb.AddKey(key);
   return chtb.Finalize();
 }
@@ -102,10 +72,36 @@ TYPED_TEST_SUITE(CompactHistTreeTest, AllKeyTypes);
 TYPED_TEST(CompactHistTreeTest, AddAndLookupDenseKeys) {
   using KeyType = typename TestFixture::KeyType;
   const auto keys = CreateDenseKeys<KeyType>();
-  const auto rs = CreateCompactHistTree(keys);
+  const auto cht = CreateCompactHistTree(keys);
   for (const auto& key : keys)
-    EXPECT_TRUE(BoundContains(keys, rs.GetSearchBound(key), key))
+    EXPECT_TRUE(BoundContains(keys, cht.GetSearchBound(key), key))
         << "key: " << key;
+}
+
+
+TYPED_TEST(CompactHistTreeTest, AddAndLookupRandomKeysPositiveLookups) {
+  using KeyType = typename TestFixture::KeyType;
+  for (size_t i = 0; i < kNumIterations; ++i) {
+    const auto keys = CreateUniqueRandomKeys<KeyType>(/*seed=*/i);
+    const auto cht = CreateCompactHistTree(keys);
+    for (const auto& key : keys)
+      EXPECT_TRUE(BoundContains(keys, cht.GetSearchBound(key), key))
+          << "key: " << key;
+  }
+}
+
+TYPED_TEST(CompactHistTreeTest, AddAndLookupRandomIntegechtNegativeLookups) {
+  using KeyType = typename TestFixture::KeyType;
+  for (size_t i = 0; i < kNumIterations; ++i) {
+    const auto keys = CreateUniqueRandomKeys<KeyType>(/*seed=*/42 + i);
+    const auto lookup_keys = CreateUniqueRandomKeys<KeyType>(/*seed=*/815 + i);
+    const auto cht = CreateCompactHistTree(keys);
+    for (const auto& key : lookup_keys) {
+      if (!BoundContains(keys, cht::SearchBound{0, keys.size()}, key))
+        EXPECT_FALSE(BoundContains(keys, cht.GetSearchBound(key), key))
+            << "key: " << key;
+    }
+  }
 }
 
 }  // namespace

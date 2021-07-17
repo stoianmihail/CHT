@@ -50,7 +50,7 @@ class CompactHistTree {
   size_t Lookup(KeyType key) const {
     // Edge cases
     if (key <= min_key_) return 0;
-    if (key >= max_key_) return num_keys_;
+    if (key >= max_key_) return num_keys_ - 1;
     key -= min_key_;
 
     auto width = shift_;
